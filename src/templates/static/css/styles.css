@@ -1,0 +1,40 @@
+body {
+	color: black;
+	font-family: arial, serif;
+	background-color: lightgray;
+	margin: 0 auto;
+}
+
+div {
+  display: block;
+  text-align: center;
+  margin-top: 15px; 
+  margin-bottom: 5px;
+}
+
+p {
+	font-size: 0.75em;	
+}
+
+p.title {
+	font-size: 2.5em;
+	font-weight: bold;
+}
+
+p.copyright {
+	font-size: 0.75em;
+}
+
+a{
+	font-size: 1em;	
+}
+
+a:link, a:visited {	
+	text-decoration: none;
+	color: blue;
+}
+
+a:hover {
+	cursor: hand;	
+	color: green;
+}
