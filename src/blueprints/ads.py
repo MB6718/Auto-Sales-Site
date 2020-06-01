@@ -11,12 +11,20 @@ from flask.views import MethodView
 
 from db import db
 
+import json
+
 bp = Blueprint('ads', __name__)
 
 class AdsView(MethodView):
 	# ### GET ##################################################################
 	def get(self):
 		""" Обработка получения всех объявлений """
+		# получаем query параметры из запроса
+		seller_id_query = request.args.get('seller_id')
+		tags_query = request.args.get('tags')
+		make_query = request.args.get('make')
+		model_query = request.args.get('model')
+		
 		# создаём соединение с БД
 		con = db.connection
 		
@@ -38,8 +46,7 @@ class AdsView(MethodView):
 				""",
 				(ad_id,)
 			)
-			#ad = dict(cur.fetchone())
-			ad = [dict(row) for row in cur.fetchall()][0]
+			ad = dict(cur.fetchone())
 			
 			# получаем из БД список тегов строками, привязанных к ID объявления
 			cur = con.execute("""
@@ -64,7 +71,7 @@ class AdsView(MethodView):
 				(ad_id,)
 			)
 			car = dict(cur.fetchone())
-			
+
 			# получаем из БД список цветов, привязанных к ID авто
 			cur = con.execute("""
 				SELECT c.id, c.name, c.hex
@@ -89,6 +96,24 @@ class AdsView(MethodView):
 			car['images'] = [dict(row) for row in images]
 			
 			ad['car'] = car
+			
+			# фильтруем по query параметру "make"
+			if make_query is not None:
+				if car['make'].lower() != make_query.lower():
+					continue
+			# фильтруем по query параметру "seller_id"
+			if seller_id_query is not None:
+				if int(ad['seller_id']) != int(seller_id_query):
+					continue
+			# фильтруем по query параметру "model"
+			if model_query is not None:
+				if car['model'].lower() != model_query.lower():
+					continue
+			# фильтруем по query параметру "tags"
+			if tags_query is not None:
+				if tags_query.lower() not in ad['tags']:
+					continue
+			
 			result.append(ad)
 
 		return jsonify(result)
@@ -100,9 +125,9 @@ class AdsView(MethodView):
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 403
+		# возвращаем код 401
 		if user_id is None:
-			return '', 403
+			return '', 401
 			
 		# получаем обязательные поля из JSON запроса
 		request_json = request.json
@@ -403,7 +428,194 @@ class AdIdView(MethodView):
 	# ### PATCH ################################################################
 	def patch(self, ad_id):
 		""" Обработка частичного редактирования объявления по его ID """
-		pass
+		# получаем user_id из текущей сессии
+		user_id = session.get('user_id')
+		
+		# если, user_id не существует, значит сессия не создана,
+		# возвращаем код 401
+		if user_id is None:
+			return '', 401
+
+		# создаём соединение с БД
+		con = db.connection
+			
+		# проверим, может ли текущий авторизованный пользователь редактировать
+		# информацию объявления под полученным ID и если не может,
+		# вернём код 409
+		cur = con.execute("""
+			SELECT ad.id AS ad_id, ac.id AS user_id
+			FROM ad
+				JOIN seller AS slr ON slr.id = ad.seller_id
+				JOIN account AS ac ON ac.id = slr.account_id
+			WHERE ad.id = ?
+			""",
+			(ad_id,)
+		)
+		user_as_seller = dict(cur.fetchone())
+		
+		if user_as_seller['user_id'] != user_id:
+			return '', 409
+		
+		# получаем возможные основные поля из структуры JSON запроса
+		request_json = request.json
+		title = request_json.get('title')
+		tags = request_json.get('tags')
+		car = request_json.get('car')
+
+		# если информация по авто указанна в запросе
+		if car is not None:
+			# разберём объект "car" на составляющие
+			make = car.get('make')
+			model = car.get('model')
+			colors = car.get('colors')
+			mileage = car.get('mileage')
+			num_owners = car.get('num_owners')
+			reg_number = car.get('reg_number')
+			images = car.get('images')
+			
+			# получаем из БД id авто
+			cur = con.execute("""
+				SELECT ad.car_id
+				FROM ad
+				WHERE ad.id = ?
+				""",
+				(ad_id,)
+			)
+			car_id = dict(cur.fetchone())['car_id']
+		
+		# если заголовок объявления указан, обновим его в БД
+		if title is not None:
+			cur = con.execute("""
+				UPDATE ad
+				SET title = ?
+				WHERE ad.id = ?
+				""",
+				(title, ad_id,)
+			)
+			con.commit()
+
+		# если указаны новые или уже существующие теги, то добавим новые или
+		# обновим связи с объявлением
+		if tags is not None:
+			# сначала удалим все связи тегов с объявлением под данным ID
+			cur = con.execute("""
+				DELETE FROM adtag
+				WHERE adtag.ad_id = ?
+				""",
+				(ad_id,)
+			)
+			
+			# добавим новые теги в БД и свяжем их с объявлением
+			for tag in tags:
+				cur = con.execute("""
+					INSERT OR IGNORE INTO tag (name)
+					VALUES (?)
+					""",
+					(tag,)
+				)
+				cur = con.execute("""
+					SELECT tag.id
+					FROM tag
+					WHERE tag.name = ?
+					""",
+					(tag,)
+				)
+				tag_id = dict(cur.fetchone())['id']
+				cur = con.execute("""
+					INSERT INTO adtag (tag_id, ad_id)
+					VALUES (?, ?)
+					""",
+					(tag_id, ad_id)
+				)
+			con.commit()
+		
+		# обновляем соответствующие поля авто в БД
+		if make is not None:
+			cur = con.execute("""
+				UPDATE car
+				SET make = ?
+				WHERE car.id = ?
+				""",
+				(make, car_id,)
+			)
+		if model is not None:
+			cur = con.execute("""
+				UPDATE car
+				SET model = ?
+				WHERE car.id = ?
+				""",
+				(model, car_id,)
+			)
+		if mileage is not None:
+			cur = con.execute("""
+				UPDATE car
+				SET mileage = ?
+				WHERE car.id = ?
+				""",
+				(mileage, car_id,)
+			)
+		if num_owners is not None:
+			cur = con.execute("""
+				UPDATE car
+				SET num_owners = ?
+				WHERE car.id = ?
+				""",
+				(num_owners, car_id,)
+			)
+		if reg_number is not None:
+			cur = con.execute("""
+				UPDATE car
+				SET reg_number = ?
+				WHERE car.id = ?
+				""",
+				(reg_number, car_id,)
+			)
+		con.commit()
+		
+		# обновим связи цветов и авто
+		if colors is not None:
+			# сначала удалим все старые связи цветов с авто
+			cur = con.execute("""
+				DELETE FROM carcolor
+				WHERE carcolor.car_id = ?
+				""",
+				(car_id,)
+			)
+			
+			# добавим новые цвета и свяжем их с авто
+			for color in colors:
+				cur = con.execute("""
+					INSERT INTO carcolor (color_id, car_id)
+					VALUES (?, ?)
+					""",
+					(color, car_id)
+				)
+			con.commit()
+		
+		# заменим картинки новыми из переданного списка
+		if images is not None:
+			# Удалим все зависимости картинок и объявления
+			cur = con.execute("""
+				DELETE FROM image
+				WHERE image.car_id = ?
+				""",
+				(car_id,)
+			)
+			
+			# добавим новые картинки и свяжем их с авто
+			for image in images:
+				img_title = image.get('title')
+				img_url = image.get('url')
+				
+				cur = con.execute("""
+					INSERT INTO image (title, url, car_id)
+					VALUES (?, ?, ?)
+					""",
+					(img_title, img_url, car_id)
+				)
+			con.commit()				
+		
+		return '', 200
 	
 	# ### DELETE ###############################################################
 	def delete(self, ad_id):
@@ -465,7 +677,7 @@ class AdIdView(MethodView):
 				(ad_id,)
 			)
 			con.commit()
-			return '', 200
+			return '', 204
 		
 		# иначе, пользователь не является владельцем объявления, вернём код 403
 		return '', 403

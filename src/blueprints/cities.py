@@ -17,7 +17,7 @@ class CitiesView(MethodView):
 		# создаём соединение с БД
 		con = db.connection
 		
-		# получим из БД и выдадим JSON список городов
+		# получим из БД и выдадим в JSON список городов
 		cur = con.execute("""
 			SELECT *
 			FROM city

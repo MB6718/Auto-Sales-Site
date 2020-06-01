@@ -11,7 +11,7 @@ from blueprints.images import bp as images_bp
 from db import db
 
 def create_app():
-	app = Flask(__name__)
+	app = Flask(__name__, template_folder='templates', static_folder='static')
 	app.config.from_object('config.Config')
 	app.register_blueprint(index_bp, url_prefix='/')
 	app.register_blueprint(auth_bp, url_prefix='/auth')
