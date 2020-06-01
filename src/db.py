@@ -1,21 +1,31 @@
 import sqlite3
 
-from flask import g
-
-DB_FILE='database.db'
-
-def get_db():
-	""" Получить данные из БД """
-	if 'db' not in g:
-		g.db = sqlite3.connect(
-			DB_FILE,
-			detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+class SqliteDB():
+	def __init__(self, app=None):
+		self._connection = None
+		self._app = None
+		if app is not None:
+			self.init_app(app)
+	
+	def init_app(self, app):
+		self._app = app
+	
+	@property
+	def connection(self):
+		self._connect()
+		return self._connection
+	
+	def _connect(self):
+		connection_string = self._app.config['DB_FILE']
+		self._connection = sqlite3.connect(
+			connection_string,
+			detect_types = sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
 		)
-		g.db.row_factory = sqlite3.Row
-	return g.db
+		self._connection.row_factory = sqlite3.Row
+	
+	def close_db(self, exception):
+		if self._connection is not None:
+			self._connection.close()
+			self._connection = None
 
-def close_db():
-	""" Закрыть соединение с БД """
-	db = g.pop('db', None)
-	if db is not None:
-		db.close()
+db = SqliteDB()
