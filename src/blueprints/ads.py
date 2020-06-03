@@ -16,7 +16,7 @@ import json
 bp = Blueprint('ads', __name__)
 
 class AdsView(MethodView):
-	# ### GET ##################################################################
+
 	def get(self):
 		""" Обработка получения всех объявлений """
 		# получаем query параметры из запроса
@@ -118,16 +118,15 @@ class AdsView(MethodView):
 
 		return jsonify(result)
 
-	# ### POST #################################################################
 	def post(self):
 		""" Обработка добавления нового объявления на сайт """
 		# получаем user_id из текущей сессии
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 401
+		# возвращаем код 403
 		if user_id is None:
-			return '', 401
+			return '', 403
 			
 		# получаем обязательные поля из JSON запроса
 		request_json = request.json
@@ -171,13 +170,13 @@ class AdsView(MethodView):
 			""",
 			(user_id,)
 		)
-		is_seller = cur.fetchall()
+		is_seller = cur.fetchone()
 		
-		if is_seller:
+		if is_seller is not None:
 			# текущий пользователь определён как продавец
 
 			# получим Seller.ID текущего пользователя
-			seller_id = [dict(row) for row in is_seller][0]['id']
+			seller_id = dict(is_seller)['id']
 			
 			# проверим существование авто в БД
 			cur = con.execute("""
@@ -344,7 +343,7 @@ class AdsView(MethodView):
 			return '', 403
 
 class AdIdView(MethodView):
-	# ### GET ##################################################################
+	
 	def get(self, ad_id):
 		""" Обработка получения объявления по его ID """
 		# создаём соединение с БД
@@ -425,7 +424,6 @@ class AdIdView(MethodView):
 	
 		return jsonify(ad)
 	
-	# ### PATCH ################################################################
 	def patch(self, ad_id):
 		""" Обработка частичного редактирования объявления по его ID """
 		# получаем user_id из текущей сессии
@@ -434,14 +432,14 @@ class AdIdView(MethodView):
 		# если, user_id не существует, значит сессия не создана,
 		# возвращаем код 401
 		if user_id is None:
-			return '', 401
+			return '', 403
 
 		# создаём соединение с БД
 		con = db.connection
 			
 		# проверим, может ли текущий авторизованный пользователь редактировать
 		# информацию объявления под полученным ID и если не может,
-		# вернём код 409
+		# вернём код 403
 		cur = con.execute("""
 			SELECT ad.id AS ad_id, ac.id AS user_id
 			FROM ad
@@ -454,7 +452,7 @@ class AdIdView(MethodView):
 		user_as_seller = dict(cur.fetchone())
 		
 		if user_as_seller['user_id'] != user_id:
-			return '', 409
+			return '', 403
 		
 		# получаем возможные основные поля из структуры JSON запроса
 		request_json = request.json
@@ -613,20 +611,19 @@ class AdIdView(MethodView):
 					""",
 					(img_title, img_url, car_id)
 				)
-			con.commit()				
+			con.commit()
 		
 		return '', 200
 	
-	# ### DELETE ###############################################################
 	def delete(self, ad_id):
 		""" Обработка удаления объявления с сайта по его ID """
 		# получаем user_id из текущей сессии
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 401
+		# возвращаем код 403
 		if user_id is None:
-			return '', 401
+			return '', 403
 		
 		# создаём соединение с БД
 		con = db.connection
@@ -667,7 +664,6 @@ class AdIdView(MethodView):
 				""",
 				(ad_id,)
 			)
-			con.commit()
 			
 			# удалим объявление под ID
 			cur = con.execute("""
@@ -677,11 +673,10 @@ class AdIdView(MethodView):
 				(ad_id,)
 			)
 			con.commit()
-			return '', 204
+			return '', 200
 		
 		# иначе, пользователь не является владельцем объявления, вернём код 403
 		return '', 403
-		
 
 bp.add_url_rule('', view_func=AdsView.as_view('ads'))
 bp.add_url_rule('/<int:ad_id>', view_func=AdIdView.as_view('ad_id'))

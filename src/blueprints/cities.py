@@ -11,7 +11,7 @@ from db import db
 bp = Blueprint('cities', __name__)
 
 class CitiesView(MethodView):
-	# ### GET ##################################################################
+
 	def get(self):
 		""" Обработка получения списка всех городов из БД """
 		# создаём соединение с БД
@@ -27,7 +27,6 @@ class CitiesView(MethodView):
 		
 		return jsonify([dict(row) for row in cities])
 	
-	# ### POST #################################################################
 	def post(self):
 		""" Обработка добавления в БД нового города """
 		# создаём соединение с БД

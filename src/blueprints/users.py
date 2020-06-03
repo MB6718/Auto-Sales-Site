@@ -19,7 +19,7 @@ from db import db
 bp = Blueprint('users', __name__)
 
 class UsersView(MethodView):
-	# ### POST #################################################################
+	
 	def post(self):
 		""" Обработка регистрации нового пользователя """
 		# получаем первостепенные поля из структуры JSON запроса
@@ -38,8 +38,8 @@ class UsersView(MethodView):
 		# создаём соединение с БД
 		con = db.connection
 		
-		# email - является уникальным ИД пользователя при регистрации
-		# означает что не может существовать 2 пользователя с одним email адресом !
+		# email - является уникальным ИД пользователя, а это означает,
+		# что не может существовать 2 пользователя с одним email адресом !
 		# а значит проверим, зарегистрирован ли в БД такой e-mail
 		cur = con.execute("""
 			SELECT ac.email
@@ -57,10 +57,35 @@ class UsersView(MethodView):
 		# преобразуем строку с паролем в хэш-пароль, который сохраним в БД
 		password_hash = generate_password_hash(password)
 		
+		#регистрируем в БД пользователя
+		cur = con.execute("""
+			INSERT INTO account (first_name,
+								 last_name,
+								 email,
+								 password)
+			VALUES (?, ?, ?, ?)
+			""",
+			(first_name, last_name, email, password_hash)
+		)
+		con.commit()
+		
+		# получаем основную информацию о пользователе
+		cur = con.execute("""
+			SELECT ac.id, ac.first_name, ac.last_name, ac.email
+			FROM account AS ac
+			WHERE ac.email = ?
+			""",
+			(email,)
+		)
+		user = dict(cur.fetchone())
+		
+		# извлекаем id зарегистрированного пользователя
+		user_id = user['id']
+		
 		# проверяем, отмечен ли регистрируемый пользователь как "продавец"
+		# если да, регистрируем в БД пользователя как продавца
 		if is_seller:
-			# и если отмечен, то получаем необходимые для "продавца" поля 
-			# из структуры JSON запроса
+			# получаем необходимые для "продавца" поля из структуры JSON запроса
 			phone = request_json.get('phone')
 			zip_code = request_json.get('zip_code')
 			city_id = request_json.get('city_id')
@@ -72,28 +97,6 @@ class UsersView(MethodView):
 				or not home:
 				return '', 400
 				
-			# регистрируем (с записью в БД) пользователя как продавца
-			cur = con.execute("""
-				INSERT INTO account (first_name,
-									 last_name,
-									 email,
-									 password)
-				VALUES (?, ?, ?, ?)
-				""",
-				(first_name, last_name, email, password_hash)
-			)
-			con.commit()
-			
-			# получаем id зарегистрированного пользователя
-			cur = con.execute("""
-				SELECT ac.id AS id
-				FROM account AS ac
-				WHERE ac.email = ?
-				""",
-				(email,)
-			)
-			user_id = cur.fetchone()['id']
-			
 			# регистрируем почтовый индекс и связываем с указанным ID города
 			cur = con.execute("""
 				INSERT OR IGNORE INTO zipcode (zip_code, city_id)
@@ -112,7 +115,7 @@ class UsersView(MethodView):
 			)
 			con.commit()
 			
-			# возвращаем ответ из БД в виде JSON объекта зарег. пользователя
+			# возвращаем полную информацию о пользователе
 			cur = con.execute("""
 				SELECT ac.id, ac.first_name, ac.last_name, ac.email,
 					   slr.zip_code, slr.street, slr.home, slr.phone,
@@ -127,43 +130,23 @@ class UsersView(MethodView):
 			user = dict(cur.fetchone())
 			user['is_seller'] = 'true'
 		else:
-			# иначе, регистрируем (с записью в БД) простого пользователя
-			cur = con.execute("""
-				INSERT INTO account (first_name,
-									 last_name,
-									 email,
-									 password)
-				VALUES (?, ?, ?, ?)
-				""",
-				(first_name, last_name, email, password_hash)
-			)
-			con.commit()
-			
-			# если успех, возвращаем ответ в виде JSON объекта
-			# зарегистрированного пользователя
-			cur = con.execute("""
-				SELECT ac.id, ac.first_name, ac.last_name, ac.email
-				FROM account AS ac
-				WHERE ac.email = ?
-				""",
-				(email,)
-			)
-			user = dict(cur.fetchone())
+			# пользователь не является продавцом
 			user['is_seller'] = 'false'
-		
+			
+		# возвращаем ответ из БД в виде JSON объекта зарег. пользователя
 		return jsonify(user), 201
 
 class UsersIDView(MethodView):
-	# ### GET ##################################################################
+	
 	def get(self, id):
 		""" Обработка получения сведений о пользователе по его ID """
 		# получаем user_id из текущей сессии
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 401
+		# возвращаем код 403
 		if user_id is None:
-			return '', 401	
+			return '', 403
 		
 		# создаём соединение с БД
 		con = db.connection
@@ -194,7 +177,7 @@ class UsersIDView(MethodView):
 		is_seller = cur.fetchone()
 		
 		if is_seller is not None:
-			# если является, то выводим полную информацию
+			# если является, то получаем полную информацию о пользователе
 			cur = con.execute("""
 				SELECT ac.id, ac.first_name, ac.last_name, ac.email,
 					   slr.zip_code, slr.street, slr.home, slr.phone,
@@ -209,7 +192,7 @@ class UsersIDView(MethodView):
 			user = dict(cur.fetchone())
 			user['is_seller'] = 'true'
 		else:
-			# иначе, выводим основную информацию
+			# иначе, получаем основную информацию о пользователе
 			cur = con.execute("""
 				SELECT ac.id, ac.first_name, ac.last_name, ac.email
 				FROM account AS ac
@@ -222,7 +205,6 @@ class UsersIDView(MethodView):
 			
 		return jsonify(user)
 	
-	# ### PATCH ################################################################
 	def patch(self, id):
 		""" Обработка частичного редактирования сведений о пользователе
 		    по его ID """
@@ -230,14 +212,14 @@ class UsersIDView(MethodView):
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 401
+		# возвращаем код 403
 		if user_id is None:
-			return '', 401
+			return '', 403
 		
 		# проверим, может ли текущий авторизованный пользователь редактировать
-		# информацию аккаунта под полученным ID и если не может, вернём код 409
+		# информацию аккаунта под полученным ID и если не может, вернём код 403
 		if user_id != id:
-			return '', 409
+			return '', 403
 		
 		# создаём соединение с БД
 		con = db.connection
@@ -257,6 +239,7 @@ class UsersIDView(MethodView):
 			seller_id = dict(user_as_seller)['id']
 		
 		# получаем возможные основные поля из структуры JSON запроса
+		# и при их наличие обновляем соответствие в БД
 		request_json = request.json
 		first_name = request_json.get('first_name')
 		last_name = request_json.get('last_name')
@@ -279,31 +262,35 @@ class UsersIDView(MethodView):
 			)
 		con.commit()
 		
+		# получим основную информацию о пользователе из БД
+		cur = con.execute("""
+			SELECT ac.id, ac.first_name, ac.last_name, ac.email
+			FROM account AS ac
+			WHERE ac.id = ?
+			""",
+			(id,)
+		)
+		user = dict(cur.fetchone())
+		user['is_seller'] = 'false'
+		
 		is_seller = request_json.get('is_seller')
 		# проверим, отмечен ли пользователь продавцом в JSON запросе
 		if is_seller is not None and not is_seller and user_as_seller:
 			# и если не отмечен, но является продавцом, удалим его как продавца
 			
-			# сначала, получим ID всех тэгов, связанных с объявлениями продавца
+			# удалим все связанные с объявлениями продавца, теги
 			cur = con.execute("""
-				SELECT adtag.id
-				FROM adtag
-					JOIN ad ON ad.id = adtag.ad_id
-					JOIN seller ON seller.id = ad.seller_id
-				WHERE seller.id = ?
+				DELETE FROM adtag
+				WHERE adtag.id IN (
+					SELECT adtag.id
+					FROM adtag
+						JOIN ad ON ad.id = adtag.ad_id
+						JOIN seller ON seller.id = ad.seller_id
+					WHERE seller.id = ?
+				)
 				""",
 				(seller_id,)
 			)
-			tags = [dict(row)['id'] for row in cur.fetchall()]
-
-			# удалим все связанные с объявлениями продавца, теги
-			for tag in tags:
-				cur = con.execute("""
-					DELETE FROM adtag
-					WHERE adtag.id = ?
-					""",
-					(tag,)
-				)
 			
 			# удалим все объявления, связанные с ID продавца
 			cur = con.execute("""
@@ -334,27 +321,11 @@ class UsersIDView(MethodView):
 			# и обновляем соответствующие поля в БД
 			if phone is not None:
 				cur = con.execute("""
-					UPDATE seller 
+					UPDATE seller
 					SET phone = ?
 					WHERE seller.id = ?
 					""",
 					(phone, seller_id,)
-				)
-			if zip_code is not None:
-				cur = con.execute("""
-					UPDATE seller 
-					SET zip_code = ?
-					WHERE seller.id = ?
-					""",
-					(zip_code, seller_id,)
-				)
-			if city_id is not None:
-				cur = con.execute("""
-					UPDATE seller 
-					SET city_id = ?	
-					WHERE seller.id = ?
-					""",
-					(city_id, seller_id,)
 				)
 			if street is not None:
 				cur = con.execute("""
@@ -366,27 +337,46 @@ class UsersIDView(MethodView):
 				)
 			if home is not None:
 				cur = con.execute("""
-					UPDATE seller 
+					UPDATE seller
 					SET home = ?
 					WHERE seller.id = ?
 					""",
 					(home, seller_id,)
-				)		
+				)
+			if zip_code is not None:
+				cur = con.execute("""
+					SELECT s.zip_code
+					FROM seller AS s
+					WHERE s.id = ?
+					""",
+					(seller_id,)
+				)
+				old_zip_code = dict(cur.fetchone())['zip_code']
+				cur = con.execute("""
+					UPDATE seller
+					SET zip_code = ?
+					WHERE seller.id = ?
+					""",
+					(zip_code, seller_id,)
+				)
+				cur = con.execute("""
+					UPDATE zipcode
+					SET zip_code = ?
+					WHERE zip_code = ?
+					""",
+					(zip_code, old_zip_code)
+				)
+			if city_id is not None:
+				cur = con.execute("""
+					UPDATE zipcode
+					SET city_id = ?	
+					WHERE zip_code = ?
+					""",
+					(city_id, zip_code,)
+				)
 			con.commit()
-		
-		# проверим, является ли пользователь под ID продавцом
-		cur = con.execute("""
-			SELECT slr.id
-			FROM account AS ac
-				JOIN seller AS slr ON slr.account_id = ac.id
-			WHERE ac.id = ?
-			""",
-			(id,)
-		)
-		is_seller = cur.fetchone()
-		
-		if is_seller is not None:
-			# если является, то выводим полную информацию
+			
+			# получим полную информацию о пользователе из БД
 			cur = con.execute("""
 				SELECT ac.id, ac.first_name, ac.last_name, ac.email,
 					   slr.zip_code, slr.street, slr.home, slr.phone,
@@ -400,22 +390,11 @@ class UsersIDView(MethodView):
 			)
 			user = dict(cur.fetchone())
 			user['is_seller'] = 'true'
-		else:
-			# иначе, выводим основную информацию
-			cur = con.execute("""
-				SELECT ac.id, ac.first_name, ac.last_name, ac.email
-				FROM account AS ac
-				WHERE ac.id = ?
-				""",
-				(id,)
-			)
-			user = dict(cur.fetchone())
-			user['is_seller'] = 'false'
-			
+		
 		return jsonify(user)
 
 class UsersAdsView(MethodView):
-	# ### GET ##################################################################
+	
 	def get(self, id):
 		""" Обработка получения всех объявлений пользователя по его ID """
 		# получаем query параметры из запроса
@@ -437,13 +416,10 @@ class UsersAdsView(MethodView):
 			""",
 			(id,)
 		)
-		user_ads_id = cur.fetchall()
-		user_ads_id = [row['id'] for row in user_ads_id]
+		user_ads_id = [row['id'] for row in cur.fetchall()]
 		
 		result = []
-		for i in range(len(user_ads_id)):
-			ad_id = user_ads_id[i]
-			
+		for ad_id in user_ads_id:
 			# получаем из БД JSON объект объявления по его ID
 			cur = con.execute("""
 				SELECT *
@@ -524,16 +500,15 @@ class UsersAdsView(MethodView):
 
 		return jsonify(result)
 	
-	# ### POST #################################################################
 	def post(self, id):
 		""" Обработка добавления нового объявления от пользователя по его ID """
 		# получаем user_id из текущей сессии
 		user_id = session.get('user_id')
 		
 		# если, user_id не существует, значит сессия не создана,
-		# возвращаем код 401
-		if user_id is None:
-			return '', 401
+		# возвращаем код 403
+		if user_id is None or user_id != id:
+			return '', 403
 			
 		# получаем обязательные поля из JSON запроса
 		request_json = request.json
@@ -577,13 +552,13 @@ class UsersAdsView(MethodView):
 			""",
 			(user_id,)
 		)
-		is_seller = cur.fetchall()
+		is_seller = cur.fetchone()
 		
-		if is_seller:
+		if is_seller is not None:
 			# текущий пользователь определён как продавец
-
+			
 			# получим Seller.ID текущего пользователя
-			seller_id = [dict(row) for row in is_seller][0]['id']
+			seller_id = dict(is_seller)['id']
 			
 			# проверим существование авто в БД
 			cur = con.execute("""
